@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-        	'hook_pose_estimator = teleop_vision.hook_pose_estimator:main',
+        	'hook_pose_estimator = hook_vision.hook_pose_estimator:main',
         ],
     },
 )
