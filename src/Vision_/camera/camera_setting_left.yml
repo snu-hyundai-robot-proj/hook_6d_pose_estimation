@@ -1,0 +1,103 @@
+__version__: 27
+Settings:
+  Acquisitions:
+    - Acquisition:
+        Aperture: 12.34
+        Brightness: 1.8
+        ExposureTime: 15000
+        Gain: 4
+    - Acquisition:
+        Aperture: 3.36
+        Brightness: 1.8
+        ExposureTime: 15000
+        Gain: 4
+  Color:
+    __version__: 8
+    Settings2D:
+      Acquisitions:
+        - Acquisition:
+            Aperture: 3.08
+            Brightness: 1.8
+            ExposureTime: 15000
+            Gain: 3
+      Processing:
+        Color:
+          Balance:
+            Blue: 2.75
+            Green: 1
+            Red: 1
+          Experimental:
+            Mode: automatic
+          Gamma: 0.9
+      Sampling:
+        Color: rgb
+        Interval:
+          Duration: __not_set__
+          Enabled: __not_set__
+        Pixel: all
+  Diagnostics:
+    Enabled: no
+  Engine: phase
+  Processing:
+    Color:
+      Balance:
+        Blue: __not_set__
+        Green: __not_set__
+        Red: __not_set__
+      Experimental:
+        Mode: __not_set__
+      Gamma: __not_set__
+    Filters:
+      Cluster:
+        Removal:
+          Enabled: yes
+          MaxNeighborDistance: 7
+          MinArea: 40
+      Experimental:
+        ContrastDistortion:
+          Correction:
+            Enabled: yes
+            Strength: 0.3
+          Removal:
+            Enabled: yes
+            Threshold: 0.4
+      Hole:
+        Repair:
+          Enabled: yes
+          HoleSize: 0.1
+          Strictness: 4
+      Noise:
+        Removal:
+          Enabled: yes
+          Threshold: 3
+        Repair:
+          Enabled: yes
+        Suppression:
+          Enabled: yes
+      Outlier:
+        Removal:
+          Enabled: yes
+          Threshold: 9
+      Reflection:
+        Removal:
+          Enabled: yes
+          Mode: local
+      Smoothing:
+        Gaussian:
+          Enabled: yes
+          Sigma: 0.5
+    Resampling:
+      Mode: disabled
+  RegionOfInterest:
+    Box:
+      Enabled: yes
+      Extents: [0, 243.38554954528809]
+      PointA: [11.646162, -9.73306847, 1064.19495]
+      PointB: [-163.664383, -233.359726, 961.059692]
+      PointO: [-210.697021, -59.2646675, 1041.35046]
+    Depth:
+      Enabled: no
+      Range: [300, 1300]
+  Sampling:
+    Color: __not_set__
+    Pixel: all
