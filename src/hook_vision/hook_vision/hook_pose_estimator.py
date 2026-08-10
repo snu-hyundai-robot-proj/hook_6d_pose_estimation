@@ -61,7 +61,7 @@ class CanonicalCandidate:
         self.quality_pass = quality_pass
 
 
-class HookPoseEstimatorRev(Node):
+class HookPoseEstimator(Node):
     def __init__(self):
         super().__init__('hook_pose_estimator_node')
 
@@ -1195,7 +1195,7 @@ def main(args=None):
     node = None
 
     try:
-        node = HookPoseEstimatorRev()
+        node = HookPoseEstimator()
         success = node.detect_hook_pose()
         if not success:
             node.get_logger().error('Hook pose estimation failed.')
