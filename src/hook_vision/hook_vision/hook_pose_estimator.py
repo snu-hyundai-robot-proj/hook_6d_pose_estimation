@@ -66,11 +66,16 @@ class HookPoseEstimator(Node):
         super().__init__('hook_pose_estimator_node')
 
         self.declare_parameter('hand_side', 'Left')
+        self.declare_parameter('fast_workspace_mode', True)
+        
         self.hand_side = self.get_parameter('hand_side').value
+        self.fast_workspace_mode = bool(
+            self.get_parameter('fast_workspace_mode').value
+        )
 
         if self.hand_side.lower() not in ['left', 'right']:
             raise ValueError("hand_side must be 'Left' or 'Right'")
-
+            
         home_dir = os.path.expanduser('~')
         self.package_dir = os.path.join(home_dir, 'workspace', 'src')
         self.vision_dir = os.path.join(self.package_dir, 'Vision_')
@@ -126,7 +131,8 @@ class HookPoseEstimator(Node):
         )
 
         # Global pose candidates
-        # PCA 24 candidates + FPFH-RANSAC 3 candidates
+        self.fast_pca_seed_names = ('pca_05', 'pca_23')
+        
         self.feature_voxel = 2.0
         self.normal_radius = 5.0
         self.feature_radius = 10.0
@@ -134,12 +140,12 @@ class HookPoseEstimator(Node):
         self.ransac_runs = 3
         self.ransac_iterations = 40000
         self.ransac_confidence = 0.999
-
+        
         # Coarse CAD ICP
         self.coarse_voxel = 1.5
         self.coarse_max_correspondence = 12.0
         self.coarse_iterations = 60
-        self.cad_candidate_count = 8
+        self.cad_candidate_count = 2 if self.fast_workspace_mode else 8
 
         # CAD refinement
         self.cad_trim_keep_ratio = 0.80
@@ -159,7 +165,7 @@ class HookPoseEstimator(Node):
 
         # Canonical refinement
         self.canonical_voxel = 1.0
-        self.canonical_candidate_count = 8
+        self.canonical_candidate_count = 2 if self.fast_workspace_mode else 8
         self.canonical_trim_keep_ratio = 0.80
         self.canonical_trim_max_correspondence = 6.0
         self.canonical_trim_iterations = 50
@@ -187,7 +193,18 @@ class HookPoseEstimator(Node):
         self.init_zivid_camera()
         self.init_icp_model()
         self.init_canonical_reference()
-
+        
+        if self.fast_workspace_mode:
+            self.get_logger().info(
+                'FAST workspace mode: PCA pca_05 + pca_23 only, '
+                'FPFH-RANSAC disabled, CAD/Canonical candidates=2/2.'
+            )
+        else:
+            self.get_logger().info(
+                'FULL global search mode: PCA 24 + FPFH-RANSAC 3, '
+                'CAD/Canonical candidates=8/8.'
+            )
+        
         self.get_logger().info('Hook Pose Estimator initialized.')
 
     def check_required_files(self):
@@ -210,8 +227,8 @@ class HookPoseEstimator(Node):
 
     def init_calibration(self):
         if self.hand_side.lower() == 'left':
-            tx, ty, tz = -1481.770, -992.169, 1599.589
-            rx, ry, rz = -120.782, -2.326, -87.213
+            tx, ty, tz = -1471.433, -979.324, 1605.287
+            rx, ry, rz = -121.401, -2.456, -87.840
         else:
             tx, ty, tz = -1468.350, 1004.437, 1665.196
             rx, ry, rz = -119.738, 1.822, -95.193
@@ -263,14 +280,22 @@ class HookPoseEstimator(Node):
             )
             gt_normal.normalize_normals()
             self.gt_normals = np.asarray(gt_normal.normals, dtype=np.float64)
-
-            # FPFH feature of CAD. RANSAC uses this for the global initial pose.
-            self.gt_feature_pcd, self.gt_fpfh = self.prepare_fpfh_cloud(self.gt_points)
-
-            self.get_logger().info(
-                f'Loaded CAD: {len(self.gt_points)} points, '
-                f'feature cloud: {len(self.gt_feature_pcd.points)} points'
-            )
+            
+            self.gt_feature_pcd = None
+            self.gt_fpfh = None
+            
+            if not self.fast_workspace_mode:
+                self.gt_feature_pcd, self.gt_fpfh = self.prepare_fpfh_cloud(
+                    self.gt_points
+                )
+                self.get_logger().info(
+                    f'Loaded CAD: {len(self.gt_points)} points, '
+                    f'feature cloud: {len(self.gt_feature_pcd.points)} points'
+                )
+            else:
+                self.get_logger().info(
+                    f'Loaded CAD: {len(self.gt_points)} points'
+                )
         except Exception as e:
             self.get_logger().error(f'Error loading ICP model: {e}')
             raise
@@ -510,19 +535,42 @@ class HookPoseEstimator(Node):
         return candidates
 
     def build_global_init_list(self, source_points):
-        init_list = []
-
-        # PCA gives 24 possible axis combinations.
-        init_list.extend(self.make_pca_initializations(source_points))
-
-        # FPFH-RANSAC is run three times with different random seeds.
+        pca_init_list = self.make_pca_initializations(source_points)
+    
+        if self.fast_workspace_mode:
+            wanted = set(self.fast_pca_seed_names)
+    
+            init_list = [
+                (name, T)
+                for name, T in pca_init_list
+                if name in wanted
+            ]
+    
+            found = {name for name, _ in init_list}
+            missing = wanted - found
+    
+            if missing:
+                raise RuntimeError(
+                    'Fast PCA seed filtering failed; missing seeds: '
+                    + ', '.join(sorted(missing))
+                )
+    
+            return self.remove_duplicate_initializations(init_list)
+    
+        init_list = list(pca_init_list)
+    
         try:
-            source_feature_pcd, source_fpfh = self.prepare_fpfh_cloud(source_points)
-
+            source_feature_pcd, source_fpfh = self.prepare_fpfh_cloud(
+                source_points
+            )
+    
+            if self.gt_feature_pcd is None or self.gt_fpfh is None:
+                raise RuntimeError('CAD FPFH feature is not initialized.')
+    
             for i in range(self.ransac_runs):
                 if hasattr(o3d.utility, 'random'):
                     o3d.utility.random.seed(1000 + i)
-
+    
                 reg = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
                     source_feature_pcd,
                     self.gt_feature_pcd,
@@ -530,10 +578,14 @@ class HookPoseEstimator(Node):
                     self.gt_fpfh,
                     True,
                     self.ransac_max_correspondence,
-                    o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
+                    o3d.pipelines.registration.TransformationEstimationPointToPoint(
+                        False
+                    ),
                     3,
                     [
-                        o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.85),
+                        o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(
+                            0.85
+                        ),
                         o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
                             self.ransac_max_correspondence
                         )
@@ -543,14 +595,17 @@ class HookPoseEstimator(Node):
                         self.ransac_confidence
                     )
                 )
-
+    
                 init_list.append((
                     f'fpfh_ransac_{i:02d}',
                     np.asarray(reg.transformation, dtype=np.float64)
                 ))
+    
         except Exception as e:
-            self.get_logger().warning(f'FPFH-RANSAC initialization failed: {e}')
-
+            self.get_logger().warning(
+                f'FPFH-RANSAC initialization failed: {e}'
+            )
+    
         return self.remove_duplicate_initializations(init_list)
 
     def make_pca_initializations(self, source_points):
